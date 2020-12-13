@@ -1,0 +1,203 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"/><link rel="icon" href="/icon/favicon.ico"/><meta name="viewport" content="width=device-width,initial-scale=1"/><meta name="theme-color" content="#000000"/><meta name="description" content="Liquid DeFi token"/><link rel="manifest" href="/manifest.json"/><title>LIQUID TOKEN</title><link href="/static/css/main.f6711343.chunk.css" rel="stylesheet"></head><body><noscript>You need to enable JavaScript to run this app.</noscript><div id="root"></div><script src="/javascripts/jquery.js"></script><script>$(".mobile-menu-button").click((function(){$(".mobile-menu").toggle()})),$(".btn-farm").click((function(){$(".farming-pop-up").toggle()}))</script><script id="heightmapFragmentShader" type="x-shader/x-fragment">#include <common>
+
+			uniform vec2 mousePos;
+			uniform float mouseSize;
+			uniform float viscosityConstant;
+			uniform float heightCompensation;
+
+			void main()	{
+
+				vec2 cellSize = 1.0 / resolution.xy;
+
+				vec2 uv = gl_FragCoord.xy * cellSize;
+
+				// heightmapValue.x == height from previous frame
+				// heightmapValue.y == height from penultimate frame
+				// heightmapValue.z, heightmapValue.w not used
+				vec4 heightmapValue = texture2D( heightmap, uv );
+
+				// Get neighbours
+				vec4 north = texture2D( heightmap, uv + vec2( 0.0, cellSize.y ) );
+				vec4 south = texture2D( heightmap, uv + vec2( 0.0, - cellSize.y ) );
+				vec4 east = texture2D( heightmap, uv + vec2( cellSize.x, 0.0 ) );
+				vec4 west = texture2D( heightmap, uv + vec2( - cellSize.x, 0.0 ) );
+
+				// https://web.archive.org/web/20080618181901/http://freespace.virgin.net/hugo.elias/graphics/x_water.htm
+
+				float newHeight = ( ( north.x + south.x + east.x + west.x ) * 0.5 - heightmapValue.y ) * viscosityConstant;
+
+				// Mouse influence
+				float mousePhase = clamp( length( ( uv - vec2( 0.5 ) ) * BOUNDS - vec2( mousePos.x, - mousePos.y ) ) * PI / mouseSize, 0.0, PI );
+				newHeight += ( cos( mousePhase ) + 1.0 ) * 0.28;
+
+				heightmapValue.y = heightmapValue.x;
+				heightmapValue.x = newHeight;
+
+				gl_FragColor = heightmapValue;
+
+			}</script><script id="smoothFragmentShader" type="x-shader/x-fragment">uniform sampler2D smoothTexture;
+
+			void main()	{
+
+				vec2 cellSize = 1.0 / resolution.xy;
+
+				vec2 uv = gl_FragCoord.xy * cellSize;
+
+				// Computes the mean of texel and 4 neighbours
+				vec4 textureValue = texture2D( smoothTexture, uv );
+				textureValue += texture2D( smoothTexture, uv + vec2( 0.0, cellSize.y ) );
+				textureValue += texture2D( smoothTexture, uv + vec2( 0.0, - cellSize.y ) );
+				textureValue += texture2D( smoothTexture, uv + vec2( cellSize.x, 0.0 ) );
+				textureValue += texture2D( smoothTexture, uv + vec2( - cellSize.x, 0.0 ) );
+
+				textureValue /= 5.0;
+
+				gl_FragColor = textureValue;
+
+			}</script><script id="readWaterLevelFragmentShader" type="x-shader/x-fragment">uniform vec2 point1;
+
+			uniform sampler2D levelTexture;
+
+			// Integer to float conversion from https://stackoverflow.com/questions/17981163/webgl-read-pixels-from-floating-point-render-target
+
+			float shift_right( float v, float amt ) {
+
+				v = floor( v ) + 0.5;
+				return floor( v / exp2( amt ) );
+
+			}
+
+			float shift_left( float v, float amt ) {
+
+				return floor( v * exp2( amt ) + 0.5 );
+
+			}
+
+			float mask_last( float v, float bits ) {
+
+				return mod( v, shift_left( 1.0, bits ) );
+
+			}
+
+			float extract_bits( float num, float from, float to ) {
+
+				from = floor( from + 0.5 ); to = floor( to + 0.5 );
+				return mask_last( shift_right( num, from ), to - from );
+
+			}
+
+			vec4 encode_float( float val ) {
+				if ( val == 0.0 ) return vec4( 0, 0, 0, 0 );
+				float sign = val > 0.0 ? 0.0 : 1.0;
+				val = abs( val );
+				float exponent = floor( log2( val ) );
+				float biased_exponent = exponent + 127.0;
+				float fraction = ( ( val / exp2( exponent ) ) - 1.0 ) * 8388608.0;
+				float t = biased_exponent / 2.0;
+				float last_bit_of_biased_exponent = fract( t ) * 2.0;
+				float remaining_bits_of_biased_exponent = floor( t );
+				float byte4 = extract_bits( fraction, 0.0, 8.0 ) / 255.0;
+				float byte3 = extract_bits( fraction, 8.0, 16.0 ) / 255.0;
+				float byte2 = ( last_bit_of_biased_exponent * 128.0 + extract_bits( fraction, 16.0, 23.0 ) ) / 255.0;
+				float byte1 = ( sign * 128.0 + remaining_bits_of_biased_exponent ) / 255.0;
+				return vec4( byte4, byte3, byte2, byte1 );
+			}
+
+			void main()	{
+
+				vec2 cellSize = 1.0 / resolution.xy;
+
+				float waterLevel = texture2D( levelTexture, point1 ).x;
+
+				vec2 normal = vec2(
+					( texture2D( levelTexture, point1 + vec2( - cellSize.x, 0 ) ).x - texture2D( levelTexture, point1 + vec2( cellSize.x, 0 ) ).x ) * WIDTH / BOUNDS,
+					( texture2D( levelTexture, point1 + vec2( 0, - cellSize.y ) ).x - texture2D( levelTexture, point1 + vec2( 0, cellSize.y ) ).x ) * WIDTH / BOUNDS );
+
+				if ( gl_FragCoord.x < 1.5 ) {
+
+					gl_FragColor = encode_float( waterLevel );
+
+				} else if ( gl_FragCoord.x < 2.5 ) {
+
+					gl_FragColor = encode_float( normal.x );
+
+				} else if ( gl_FragCoord.x < 3.5 ) {
+
+					gl_FragColor = encode_float( normal.y );
+
+				} else {
+
+					gl_FragColor = encode_float( 0.0 );
+
+				}
+
+			}</script><script id="waterVertexShader" type="x-shader/x-vertex">uniform sampler2D heightmap;
+
+			#define PHONG
+
+			varying vec3 vViewPosition;
+
+			#ifndef FLAT_SHADED
+
+				varying vec3 vNormal;
+
+			#endif
+
+			#include <common>
+			#include <uv_pars_vertex>
+			#include <uv2_pars_vertex>
+			#include <displacementmap_pars_vertex>
+			#include <envmap_pars_vertex>
+			#include <color_pars_vertex>
+			#include <morphtarget_pars_vertex>
+			#include <skinning_pars_vertex>
+			#include <shadowmap_pars_vertex>
+			#include <logdepthbuf_pars_vertex>
+			#include <clipping_planes_pars_vertex>
+
+			void main() {
+
+				vec2 cellSize = vec2( 1.0 / WIDTH, 1.0 / WIDTH );
+
+				#include <uv_vertex>
+				#include <uv2_vertex>
+				#include <color_vertex>
+
+				// # include <beginnormal_vertex>
+				// Compute normal from heightmap
+				vec3 objectNormal = vec3(
+					( texture2D( heightmap, uv + vec2( - cellSize.x, 0 ) ).x - texture2D( heightmap, uv + vec2( cellSize.x, 0 ) ).x ) * WIDTH / BOUNDS,
+					( texture2D( heightmap, uv + vec2( 0, - cellSize.y ) ).x - texture2D( heightmap, uv + vec2( 0, cellSize.y ) ).x ) * WIDTH / BOUNDS,
+					1.0 );
+				//<beginnormal_vertex>
+
+				#include <morphnormal_vertex>
+				#include <skinbase_vertex>
+				#include <skinnormal_vertex>
+				#include <defaultnormal_vertex>
+
+			#ifndef FLAT_SHADED // Normal computed with derivatives when FLAT_SHADED
+
+				vNormal = normalize( transformedNormal );
+
+			#endif
+
+				//# include <begin_vertex>
+				float heightValue = texture2D( heightmap, uv ).x;
+				vec3 transformed = vec3( position.x, position.y, heightValue );
+				//<begin_vertex>
+
+				#include <morphtarget_vertex>
+				#include <skinning_vertex>
+				#include <displacementmap_vertex>
+				#include <project_vertex>
+				#include <logdepthbuf_vertex>
+				#include <clipping_planes_vertex>
+
+				vViewPosition = - mvPosition.xyz;
+
+				#include <worldpos_vertex>
+				#include <envmap_vertex>
+				#include <shadowmap_vertex>
+
+			}</script><script type="module">import*as THREE from"/javascripts/jsm/libs/three.module.js";import Stats from"/javascripts/jsm/libs/stats.module.js";import{GUI}from"/javascripts/jsm/libs/dat.gui.module.js";import{GPUComputationRenderer}from"/javascripts/jsm/misc/GPUComputationRenderer.js";import{SimplexNoise}from"/javascripts/jsm/math/SimplexNoise.js";$((function(){let e=0!==$("#fog-container").length;console.log(e);let t,n,o,i,a,r=!1;const s=new THREE.Vector2,l=new THREE.Raycaster;let d,m,u,c,E,h,f,p,g;const T=new THREE.Vector3,v=[];let w=!1;const R=new SimplexNoise;function x(){o.aspect=window.innerWidth/window.innerHeight,o.updateProjectionMatrix(),a.setSize(window.innerWidth,window.innerHeight)}function H(e){var t,n;!1!==e.isPrimary&&(t=e.clientX,n=e.clientY,s.set(t/a.domElement.clientWidth*2-1,-n/a.domElement.clientHeight*2+1),r=!0)}!function(){t=document.createElement("div"),document.body.appendChild(t);let r=e?55:45;o=new THREE.PerspectiveCamera(r,window.innerWidth/window.innerHeight,1,3e3),o.position.set(0,350,1),o.lookAt(0,0,0),i=new THREE.Scene;let s=e?10091775:16777215;const l=new THREE.DirectionalLight(s,1);l.position.set(300,400,175),i.add(l);const T=new THREE.DirectionalLight(4235328,.06);T.position.set(-100,350,-200),i.add(T),a=new THREE.WebGLRenderer,a.setPixelRatio(window.devicePixelRatio),a.setSize(window.innerWidth,window.innerHeight),t.appendChild(a.domElement),n=new Stats,t.style.touchAction="none",t.addEventListener("pointermove",H,!1),document.addEventListener("keydown",(function(e){87===e.keyCode&&(d.material.wireframe=!d.material.wireframe,d.material.needsUpdate=!0)}),!1),window.addEventListener("resize",x,!1);const y=new GUI,S={mouseSize:7,viscosity:.85,spheresEnabled:w},C=function(){c.material.uniforms.mouseSize.value=S.mouseSize,c.material.uniforms.viscosityConstant.value=S.viscosity,w=S.spheresEnabled;for(let e=0;e<5;e++)v[e]&&(v[e].visible=w)};y.add(S,"mouseSize",1,100,1).onChange(C),y.add(S,"viscosity",.9,.999,.001).onChange(C),y.add(S,"spheresEnabled",0,1,1).onChange(C);const M={smoothWater:function(){!function(){const e=u.getCurrentRenderTarget(c),t=u.getAlternateRenderTarget(c);for(let n=0;n<10;n++)h.uniforms.smoothTexture.value=e.texture,u.doRenderTarget(h,t),h.uniforms.smoothTexture.value=t.texture,u.doRenderTarget(h,e)}()}};y.add(M,"smoothWater"),function(){const t=e?1122858:8563708,n=new THREE.PlaneBufferGeometry(1024,1024,255,255),o=new THREE.ShaderMaterial({uniforms:THREE.UniformsUtils.merge([THREE.ShaderLib.phong.uniforms,{heightmap:{value:null}}]),vertexShader:document.getElementById("waterVertexShader").textContent,fragmentShader:THREE.ShaderChunk.meshphong_frag});o.lights=!0,o.color=new THREE.Color(t),o.specular=new THREE.Color(1118481),o.shininess=50,o.uniforms.diffuse.value=o.color,o.uniforms.specular.value=o.specular,o.uniforms.shininess.value=Math.max(o.shininess,1e-4),o.uniforms.opacity.value=o.opacity,o.defines.WIDTH=256..toFixed(1),o.defines.BOUNDS=1024..toFixed(1),E=o.uniforms,d=new THREE.Mesh(n,o),d.rotation.x=-Math.PI/2,d.matrixAutoUpdate=!1,d.updateMatrix(),i.add(d);const r=new THREE.PlaneBufferGeometry(1024,1024,1,1);let s=e?13553358:16777215;m=new THREE.Mesh(r,new THREE.MeshBasicMaterial({color:s,visible:!1})),m.rotation.x=-Math.PI/2,m.matrixAutoUpdate=!1,m.updateMatrix(),i.add(m),u=new GPUComputationRenderer(256,256,a),function(){return!!navigator.userAgent.match(/Safari/i)&&!navigator.userAgent.match(/Chrome/i)}()&&u.setDataType(THREE.HalfFloatType);const l=u.createTexture();(function(e){function t(e,t){let n=10,o=.025,i=0;for(let a=0;a<15;a++)i+=n*R.noise(e*o,t*o),n*=.53+.025*a,o*=1.25;return i}const n=e.image.data;let o=0;for(let e=0;e<256;e++)for(let i=0;i<256;i++){const a=128*i/256,r=128*e/256;n[o]=t(a,r),n[o+1]=n[o],n[o+2]=0,n[o+3]=1,o+=4}})(l),c=u.addVariable("heightmap",document.getElementById("heightmapFragmentShader").textContent,l),u.setVariableDependencies(c,[c]);let T=e?10:20;c.material.uniforms.mousePos={value:new THREE.Vector2(1e4,1e4)},c.material.uniforms.mouseSize={value:T},c.material.uniforms.viscosityConstant={value:.98},c.material.uniforms.heightCompensation={value:0},c.material.defines.BOUNDS=1024..toFixed(1);const v=u.init();null!==v&&console.error(v);h=u.createShaderMaterial(document.getElementById("smoothFragmentShader").textContent,{smoothTexture:{value:null}}),f=u.createShaderMaterial(document.getElementById("readWaterLevelFragmentShader").textContent,{point1:{value:new THREE.Vector2},levelTexture:{value:null}}),f.defines.WIDTH=256..toFixed(1),f.defines.BOUNDS=1024..toFixed(1),g=new Uint8Array(16),p=new THREE.WebGLRenderTarget(4,1,{wrapS:THREE.ClampToEdgeWrapping,wrapT:THREE.ClampToEdgeWrapping,minFilter:THREE.NearestFilter,magFilter:THREE.NearestFilter,format:THREE.RGBAFormat,type:THREE.UnsignedByteType,depthBuffer:!1})}(),function(){const e=new THREE.Mesh(new THREE.SphereBufferGeometry(4,24,12),new THREE.MeshPhongMaterial({color:16776960}));for(let t=0;t<5;t++){let n=e;t<4&&(n=e.clone()),n.position.x=1024*(Math.random()-.5)*.7,n.position.z=1024*(Math.random()-.5)*.7,n.userData.velocity=new THREE.Vector3,i.add(n),v[t]=n}}(),C()}(),function e(){requestAnimationFrame(e),function(){const e=c.material.uniforms;if(r){l.setFromCamera(s,o);const t=l.intersectObject(m);if(t.length>0){const n=t[0].point;e.mousePos.value.set(n.x,n.z)}else e.mousePos.value.set(1e4,1e4);r=!1}else e.mousePos.value.set(1e4,1e4);u.compute(),w&&function(){const e=u.getCurrentRenderTarget(c);f.uniforms.levelTexture.value=e.texture;for(let e=0;e<5;e++){const t=v[e];if(t){const e=.5*t.position.x/512+.5,n=1-(.5*t.position.z/512+.5);f.uniforms.point1.value.set(e,n),u.doRenderTarget(f,p),a.readRenderTargetPixels(p,0,0,4,1,g);const o=new Float32Array(g.buffer);T.set(o[1],0,-o[2]);const i=t.position;i.y=o[0],T.multiplyScalar(.1),t.userData.velocity.add(T),t.userData.velocity.multiplyScalar(.998),i.add(t.userData.velocity),i.x<-512?(i.x=-511.999,t.userData.velocity.x*=-.3):i.x>512&&(i.x=511.999,t.userData.velocity.x*=-.3),i.z<-512?(i.z=-511.999,t.userData.velocity.z*=-.3):i.z>512&&(i.z=511.999,t.userData.velocity.z*=-.3)}}}();E.heightmap.value=u.getCurrentRenderTarget(c).texture,a.render(i,o)}(),n.update()}()}))</script><script>!function(e){function r(r){for(var n,i,a=r[0],c=r[1],l=r[2],s=0,p=[];s<a.length;s++)i=a[s],Object.prototype.hasOwnProperty.call(o,i)&&o[i]&&p.push(o[i][0]),o[i]=0;for(n in c)Object.prototype.hasOwnProperty.call(c,n)&&(e[n]=c[n]);for(f&&f(r);p.length;)p.shift()();return u.push.apply(u,l||[]),t()}function t(){for(var e,r=0;r<u.length;r++){for(var t=u[r],n=!0,a=1;a<t.length;a++){var c=t[a];0!==o[c]&&(n=!1)}n&&(u.splice(r--,1),e=i(i.s=t[0]))}return e}var n={},o={1:0},u=[];function i(r){if(n[r])return n[r].exports;var t=n[r]={i:r,l:!1,exports:{}};return e[r].call(t.exports,t,t.exports,i),t.l=!0,t.exports}i.e=function(e){var r=[],t=o[e];if(0!==t)if(t)r.push(t[2]);else{var n=new Promise((function(r,n){t=o[e]=[r,n]}));r.push(t[2]=n);var u,a=document.createElement("script");a.charset="utf-8",a.timeout=120,i.nc&&a.setAttribute("nonce",i.nc),a.src=function(e){return i.p+"static/js/"+({}[e]||e)+"."+{3:"8a3c3dfd"}[e]+".chunk.js"}(e);var c=new Error;u=function(r){a.onerror=a.onload=null,clearTimeout(l);var t=o[e];if(0!==t){if(t){var n=r&&("load"===r.type?"missing":r.type),u=r&&r.target&&r.target.src;c.message="Loading chunk "+e+" failed.\n("+n+": "+u+")",c.name="ChunkLoadError",c.type=n,c.request=u,t[1](c)}o[e]=void 0}};var l=setTimeout((function(){u({type:"timeout",target:a})}),12e4);a.onerror=a.onload=u,document.head.appendChild(a)}return Promise.all(r)},i.m=e,i.c=n,i.d=function(e,r,t){i.o(e,r)||Object.defineProperty(e,r,{enumerable:!0,get:t})},i.r=function(e){"undefined"!=typeof Symbol&&Symbol.toStringTag&&Object.defineProperty(e,Symbol.toStringTag,{value:"Module"}),Object.defineProperty(e,"__esModule",{value:!0})},i.t=function(e,r){if(1&r&&(e=i(e)),8&r)return e;if(4&r&&"object"==typeof e&&e&&e.__esModule)return e;var t=Object.create(null);if(i.r(t),Object.defineProperty(t,"default",{enumerable:!0,value:e}),2&r&&"string"!=typeof e)for(var n in e)i.d(t,n,function(r){return e[r]}.bind(null,n));return t},i.n=function(e){var r=e&&e.__esModule?function(){return e.default}:function(){return e};return i.d(r,"a",r),r},i.o=function(e,r){return Object.prototype.hasOwnProperty.call(e,r)},i.p="/",i.oe=function(e){throw console.error(e),e};var a=this["webpackJsonpreactive-liquid"]=this["webpackJsonpreactive-liquid"]||[],c=a.push.bind(a);a.push=r,a=a.slice();for(var l=0;l<a.length;l++)r(a[l]);var f=c;t()}([])</script><script src="/static/js/2.1a9fc98e.chunk.js"></script><script src="/static/js/main.1618f6bf.chunk.js"></script></body></html>

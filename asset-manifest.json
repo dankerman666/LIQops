@@ -1,0 +1,24 @@
+{
+  "files": {
+    "main.css": "/static/css/main.f6711343.chunk.css",
+    "main.js": "/static/js/main.1618f6bf.chunk.js",
+    "main.js.map": "/static/js/main.1618f6bf.chunk.js.map",
+    "runtime-main.js": "/static/js/runtime-main.7ecd67bd.js",
+    "runtime-main.js.map": "/static/js/runtime-main.7ecd67bd.js.map",
+    "static/js/2.1a9fc98e.chunk.js": "/static/js/2.1a9fc98e.chunk.js",
+    "static/js/2.1a9fc98e.chunk.js.map": "/static/js/2.1a9fc98e.chunk.js.map",
+    "static/js/3.8a3c3dfd.chunk.js": "/static/js/3.8a3c3dfd.chunk.js",
+    "static/js/3.8a3c3dfd.chunk.js.map": "/static/js/3.8a3c3dfd.chunk.js.map",
+    "index.html": "/index.html",
+    "static/css/main.f6711343.chunk.css.map": "/static/css/main.f6711343.chunk.css.map",
+    "static/js/2.1a9fc98e.chunk.js.LICENSE.txt": "/static/js/2.1a9fc98e.chunk.js.LICENSE.txt",
+    "static/media/fog-logo.551cb24c.png": "/static/media/fog-logo.551cb24c.png",
+    "static/media/index.scss": "/static/media/puddle-f-4.42ef33ad.png"
+  },
+  "entrypoints": [
+    "static/js/runtime-main.7ecd67bd.js",
+    "static/js/2.1a9fc98e.chunk.js",
+    "static/css/main.f6711343.chunk.css",
+    "static/js/main.1618f6bf.chunk.js"
+  ]
+}
